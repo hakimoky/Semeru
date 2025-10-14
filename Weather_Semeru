@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>SEMERU — AWS & ARG Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #fff;
+      color: #000;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+      background: #1e293b;
+      color: #fff;
+    }
+    header h1 {
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header img.logo {
+      height: 24px;
+    }
+    header .logos img {
+      height: 30px;
+      margin-left: 10px;
+    }
+    .section {
+      padding: 10px;
+    }
+    .arg-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .aws-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .card {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .value-box {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .alat-header {
+      font-size: 14px;
+      font-weight: bold;
+      padding: 5px;
+      border-radius: 4px;
+      margin-bottom: 5px;
+      color: #fff;
+    }
+    canvas {
+      max-height: 180px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>
+      <img src="img/sdc.png" class="logo"> SEMERU — AWS & ARG Dashboard
+    </h1>
+    <div class="logos">
+      <img src="img/bmkg.png">
+      <img src="img/bnpb.png">
+      <img src="img/pvmbg.png">
+      <img src="img/bpbd.png">
+    </div>
+    <div id="time"></div>
+  </header>
+
+  <!-- ARG Section -->
+  <div class="section">
+    <div id="arg-container" class="arg-grid"></div>
+  </div>
+
+  <!-- AWS Section -->
+  <div class="section">
+    <div id="aws-container" class="aws-grid"></div>
+  </div>
+
+  <script>
+    function updateTime() {
+      document.getElementById("time").textContent =
+        new Date().toLocaleString("id-ID");
+    }
+    setInterval(updateTime, 1000);
+    updateTime();
+
+    const alatColors = {
+      "ARG Pasrujambe": "#2563eb",
+      "ARG Pronojiwo": "#16a34a",
+      "ARG Tempusari": "#9333ea",
+      "ARG Supiturang": "#dc2626",
+      "AWS Argosuko": "#0284c7",
+      "AWS Ranupani": "#7c3aed",
+      "AWS Pasirian": "#ea580c"
+    };
+
+    async function loadData() {
+      const response = await fetch("weather_semeru.geojson");
+      const data = await response.json();
+
+      // ---- ARG ----
+      const argContainer = document.getElementById("arg-container");
+      const args = data.features.filter(f =>
+        f.properties.Alat && f.properties.Alat.startsWith("ARG")
+      );
+
+      args.forEach((arg, i) => {
+        const props = arg.properties;
+        const series = props.series || [];
+        const alat = props.Alat;
+
+        const card = document.createElement("div");
+        card.className = "card";
+
+        card.innerHTML = `
+          <div class="alat-header" style="background:${alatColors[alat] || "#1e293b"}">${alat}</div>
+          <div>${props.Tanggal} ${props.Waktu} UTC</div>
+          <div class="value-box">Curah Hujan 1 Jam Lalu: ${props["Curah Hujan 1 Jam yang lalu (mm/jam)"]} mm/jam</div>
+          <div class="value-box">Curah Hujan Hari Ini: ${props["Curah Hujan Hari Ini (mm/hari)"]} mm</div>
+          <div class="value-box">Curah Hujan 3 Hari Lalu: ${props["Curah Hujan 3 Hari Lalu (mm)"]} mm</div>
+          <canvas id="argRainChart${i}"></canvas>
+        `;
+        argContainer.appendChild(card);
+
+        new Chart(document.getElementById("argRainChart" + i), {
+          type: "line",
+          data: {
+            labels: series.map(s => s.TIMESTAMP.split(" ")[1]),
+            datasets: [{
+              label: "Curah Hujan (mm/jam)",
+              data: series.map(s => s.PR_meas_Total_p1 ?? null),
+              borderColor: "purple",
+              fill: false
+            }]
+          },
+          options: { scales: { y: { beginAtZero: true } } }
+        });
+      });
+
+      // ---- AWS ----
+      const awsContainer = document.getElementById("aws-container");
+      const awsStations = data.features.filter(f =>
+        f.properties.Alat && f.properties.Alat.startsWith("AWS")
+      );
+
+      awsStations.forEach((aws, i) => {
+        const props = aws.properties;
+        const series = props.series || [];
+        const alat = props.Alat;
+        const baseId = "aws" + i;
+
+        function makeAwsCard(title, value, dataset, color, idSuffix) {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = `
+            <div class="alat-header" style="background:${alatColors[alat] || "#1e293b"}">${alat} — ${title}</div>
+            <div>${props.Tanggal} ${props.Waktu} UTC</div>
+            <div class="value-box">${value}</div>
+            <canvas id="${baseId}${idSuffix}"></canvas>
+          `;
+          awsContainer.appendChild(card);
+
+          new Chart(document.getElementById(baseId + idSuffix), {
+            type: "line",
+            data: {
+              labels: series.map(s => s.TIMESTAMP.split(" ")[1]),
+              datasets: [{
+                label: title,
+                data: dataset,
+                borderColor: color,
+                fill: false
+              }]
+            },
+            options: { scales: { y: { beginAtZero: true } } }
+          });
+        }
+
+        // Urutan baru: Curah Hujan → Angin → Suhu → Kelembapan → Tekanan → Radiasi
+        makeAwsCard("Curah Hujan (mm)", `
+          1 Jam Lalu: ${props["Curah Hujan 1 Jam yang lalu (mm/jam)"]} mm/jam<br>
+          Hari Ini: ${props["Curah Hujan Hari Ini (mm/hari)"]} mm<br>
+          3 Hari Lalu: ${props["Curah Hujan 3 Hari Lalu (mm)"]} mm`,
+          series.map(s => s.PR_meas_Total ?? null), "purple", "Rain");
+
+        makeAwsCard("Angin (kt)", props["Kecepatan Angin (kt)"]?.toFixed(1) + " kt (" + props["Arah Angin (°)"] + "°)",
+          series.map(s => s.WS_knot_Max ?? null), "cyan", "Wind");
+
+        makeAwsCard("Suhu (°C)", props["Suhu Udara (°C)"]?.toFixed(1) + " °C",
+          series.map(s => s.TA_meas_Avg ?? null), "red", "Temp");
+
+        makeAwsCard("Kelembapan (%)", props["Kelembapan Udara (%)"]?.toFixed(0) + " %",
+          series.map(s => s.RH_meas_Avg ?? null), "blue", "Hum");
+
+        makeAwsCard("Tekanan (hPa)", props["Tekanan Udara (hPa)"]?.toFixed(1) + " hPa",
+          series.map(s => s.PA_meas_Avg ?? null), "teal", "Pres");
+
+        makeAwsCard("Radiasi (W/m²)", props["Radiasi Matahari (Watt/m2)"]?.toFixed(1) + " W/m²",
+          series.map(s => s.SR_meas_Avg ?? null), "orange", "Rad");
+      });
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
